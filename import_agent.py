@@ -18,6 +18,8 @@ import sys
 import tempfile
 import time
 import unicodedata
+import urllib.request
+import urllib.error
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -556,6 +558,36 @@ def move_staged_file(file_path: Path, target_directory: Path) -> None:
     print(f"Moved source file to {destination}")
 
 
+def download_file(url: str, destination_dir: Path) -> Path:
+    """Download a file from a URL into destination_dir and return its local path.
+
+    The filename is derived from the URL's last path segment. If the server
+    does not provide a recognisable extension, '.csv' is assumed.
+    """
+    parsed_name = url.rstrip("/").split("/")[-1].split("?")[0] or "download"
+    suffix = Path(parsed_name).suffix.lower()
+    if suffix not in SUPPORTED_EXTENSIONS:
+        suffix = ".csv"
+    local_name = Path(parsed_name).stem + suffix
+    destination = destination_dir / local_name
+
+    print(f"Downloading {url} …")
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; spreadsheet-import-agent/1.0)"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            destination.write_bytes(response.read())
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f"HTTP {error.code} when downloading {url}: {error.reason}") from error
+    except urllib.error.URLError as error:
+        raise RuntimeError(f"Could not reach {url}: {error.reason}") from error
+
+    print(f"Saved to {destination}")
+    return destination
+
+
 def import_file(file_name: str | Path, table_override: str | None = None) -> int:
     file_path = Path(file_name).expanduser().resolve()
     if file_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
@@ -628,6 +660,7 @@ def watch_folder(interval: float) -> None:
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Import spreadsheets or photographed tables into SQLite.")
     parser.add_argument("--file", help="Import one spreadsheet file")
+    parser.add_argument("--url", help="Download a CSV/XLSX file from a URL and import it")
     parser.add_argument("--table", help="Override the destination table name")
     parser.add_argument("--watch", action="store_true", help="Continue watching the incoming folder")
     return parser.parse_args()
@@ -636,6 +669,17 @@ def parse_arguments() -> argparse.Namespace:
 def main() -> int:
     arguments = parse_arguments()
     ensure_directories()
+    if arguments.url:
+        tmp_dir = Path(tempfile.mkdtemp())
+        try:
+            downloaded = download_file(arguments.url, tmp_dir)
+            import_file(downloaded, arguments.table)
+            return 0
+        except Exception as error:
+            print(f"URL import failed: {error}", file=sys.stderr)
+            return 1
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
     if arguments.file:
         try:
             import_file(arguments.file, arguments.table)
