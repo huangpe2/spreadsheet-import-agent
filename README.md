@@ -69,6 +69,22 @@ For a multi-sheet workbook, the sheet name is appended, producing tables such as
 
 Files passed with `--file` stay in their original location. Files placed in `incoming` move to `processed` after a successful import.
 
+## Import a file directly from a URL
+
+Download a CSV, TSV, or XLSX file from any public URL and import it in one step:
+
+```bash
+python3 import_agent.py --url "https://example.com/data.csv"
+```
+
+Combine with `--table` to control the destination table name:
+
+```bash
+python3 import_agent.py --url "https://example.com/data.csv" --table my_table
+```
+
+The file is downloaded to a temporary folder, imported, and the temporary file is deleted automatically. The `--url` flag cannot be combined with `--file` or `--watch`.
+
 ## Watch continuously
 
 ```bash
